@@ -1,0 +1,96 @@
+# Thanks for stopping by! This is my script I created to attempt a bypass of Spotify's suggestion algorithm. 
+# The thesis is that this gives you a "True" random if ever you want to not hear the same thing
+# One could argue that Spotify knows you better and that the true random is a useless excercise in futility
+# They can go to hell, anyways enjoy!
+
+import spotipy
+import spotipy.util as util
+import random
+from secret_library import Secret  # I've got this on another file you can just put your credentials in here or another environment
+
+# Retrieve credentials 
+SPOTIFY_CLIENT_ID = Secret.get("SPOTIFY_CLIENT_ID")
+SPOTIFY_CLIENT_SECRET = Secret.get("SPOTIFY_CLIENT_SECRET")
+SPOTIFY_REDIRECT_URI = Secret.get("SPOTIFY_REDIRECT_URI")
+SPOTIFY_USERNAME = Secret.get("SPOTIFY_USERNAME")
+
+# Ensure all required credentials are retrieved
+if not all([SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI, SPOTIFY_USERNAME]):
+    raise EnvironmentError("Missing required Spotify credentials or username from Secret library.")
+
+# Spotify API client create
+client_credentials_manager = spotipy.oauth2.SpotifyClientCredentials(
+    client_id=SPOTIFY_CLIENT_ID,
+    client_secret=SPOTIFY_CLIENT_SECRET
+)
+sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
+
+# Put your search terms in here in the search library, it's a bit manual but hey this is free lol
+search_terms = [
+    'Bossa Nova',
+    "Samba",
+    "Brazilian",
+    "Brazil",
+    "Brazilian Classical Guitar",
+]
+
+# Retrieve a list of random tracks
+random_tracks = []
+for search_term in search_terms:
+    try:
+        random_offset = random.randint(0, 950)  # Maximum offset is 1000 - 50 (limit)
+        tracks = sp.search(q=search_term, type='track', limit=50, offset=random_offset)['tracks']['items']
+        random_tracks.extend(tracks)
+    except spotipy.exceptions.SpotifyException as e:
+        print(f"Error occurred for search term '{search_term}': {e}")
+        continue
+
+# Randomly select 50 tracks
+random.shuffle(random_tracks)
+random_tracks = random_tracks[:50]
+
+# Authenticate user
+scope = 'playlist-modify-public'
+token = util.prompt_for_user_token(
+    SPOTIFY_USERNAME, 
+    scope, 
+    client_id=SPOTIFY_CLIENT_ID, 
+    client_secret=SPOTIFY_CLIENT_SECRET, 
+    redirect_uri=SPOTIFY_REDIRECT_URI
+)
+
+if token:
+    # Create a new playlist
+    sp = spotipy.Spotify(auth=token)
+
+    # Fetch the current user ID
+    user_id = sp.me()['id']
+
+    # Generate a randomized playlist name
+    playlist_name_numbers = list(range(10))
+    playlist_name_letters = list('abcdefghijklmnopqrstuvwxyz')
+    playlist_name_symbols = list('!@#$%^&*()-_=+[]{}|\\:;,./?')
+    name_choices = (
+        random.choices(playlist_name_letters, k=random.randint(3, 5)) +
+        random.choices(playlist_name_numbers, k=random.randint(3, 5)) +
+        random.choices(playlist_name_symbols, k=random.randint(3, 5))
+    )
+    random.shuffle(name_choices)
+    playlist_name = f'Randomized Playlist #{"".join(map(str, name_choices))}'
+    playlist_description = 'A playlist with 50 completely randomized songs'
+    playlist = sp.user_playlist_create(user_id, playlist_name, description=playlist_description)
+    playlist_id = playlist['id']
+
+    # Add songs to the playlist
+    track_uris = [track['uri'] for track in random_tracks]
+    sp.user_playlist_add_tracks(user_id, playlist_id, track_uris)
+
+    # Print the added songs
+    print('Songs added to the playlist:')
+    for track in random_tracks:
+        print('Track:', track['name'])
+        print('Artist:', track['artists'][0]['name'])
+        print('Album:', track['album']['name'])
+        print()
+else:
+    print("Authentication failed. Check your Spotify username and credentials.")
